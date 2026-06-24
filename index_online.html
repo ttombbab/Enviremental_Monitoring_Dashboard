@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Environmental Monitoring Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+    <style>
+        #map { height: 400px; }
+        .legend {
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.2);
+        }
+        .legend h6 {
+            margin: 0 0 5px;
+            font-weight: bold;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            margin-right: 8px;
+            border: 1px solid #666;
+        }
+        .card {
+            transition: transform 0.2s;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        .control-panel {
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            margin-bottom: 10px;
+        }
+        .pollution-icon {
+            font-size: 24px;
+            text-align: center;
+            line-height: 30px;
+        }
+
+        .card-header h4 {
+            margin: 0;
+            font-weight: 600;
+        }
+
+        .alert-high { background-color: #f8d7da !important; border-color: #f5c6cb !important; color: #721c24 !important; }
+        .alert-moderate { background-color: #fff3cd !important; border-color: #ffeaa7 !important; color: #856404 !important; }
+        .alert-low { background-color: #d4edda !important; border-color: #c3e6cb !important; color: #155724 !important; }
+
+        .metric-card {
+            border-left: 4px solid #007bff;
+            transition: all 0.3s ease;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        }
+
+        .trend-indicator {
+            font-size: 0.8em;
+            padding: 2px 6px;
+            border-radius: 12px;
+        }
+
+        .trend-up { background-color: #dc3545; color: white; }
+        .trend-down { background-color: #28a745; color: white; }
+        .trend-stable { background-color: #6c757d; color: white; }
+
+    </style>
+</head>
+<body class="bg-light">
+<div class="container py-4">
+    <h1 class="mb-4">🌍 Environmental Monitoring Dashboard</h1>
+
+    <div class="control-panel">
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <label for="lat" class="form-label">Latitude:</label>
+                <input type="number" id="lat" class="form-control" value="34.542956" step="any">
+            </div>
+            <div class="col-md-4">
+                <label for="lon" class="form-label">Longitude:</label>
+                <input type="number" id="lon" class="form-control" value="-109.587958" step="any">
+            </div>
+            <div class="col-md-4 d-flex align-items-end">
+                <button class="btn btn-primary w-100" onclick="loadData()">Load Data</button>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-md-12">
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" id="windLayerToggle" onchange="toggleWindLayer()">
+                    <label class="form-check-label" for="windLayerToggle">Show Wind Layer</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" id="tempLayerToggle" onchange="toggleTempLayer()">
+                    <label class="form-check-label" for="tempLayerToggle">Show Temperature Layer</label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="map" class="mb-4"></div>
+    
+    <div class="row mt-4">
+        <!-- Air Quality Card -->
+        <div class="col-md-6 mb-3">
+            <div class="card">
+                <div class="card-header bg-info text-white">
+                    <h4>💨 Air Quality Index</h4>
+                </div>
+                <div class="card-body" id="air-quality-content">
+                    <div class="text-center">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Water Quality Card -->
+        <div class="col-md-6 mb-3">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h4>💧 Water Quality</h4>
+                </div>
+                <div class="card-body" id="water-quality-content">
+                    <div class="text-center">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h4>🤖 AI Assistant</h4>
+                </div>
+                <div class="card-body">
+                    <div id="chat-container" style="height: 200px; overflow-y: auto; margin-bottom: 15px; border: 1px solid #ddd; padding: 10px;">
+                        <div class="alert alert-info">Ask me anything about the environmental data!</div>
+                    </div>
+                    <div class="input-group">
+                        <input type="text" id="chat-input" class="form-control" placeholder="Type your question here...">
+                        <button class="btn btn-primary" onclick="sendMessage()">Send</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h4>📊 Environmental Trends & Analysis</h4>
+                </div>
+                <div class="card-body">
+                    <ul class="nav nav-tabs" id="trendTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="air-tab" data-bs-toggle="tab" data-bs-target="#air-trend" type="button" role="tab">Air Quality</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="climate-tab" data-bs-toggle="tab" data-bs-target="#climate-trend" type="button" role="tab">Climate</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="water-tab" data-bs-toggle="tab" data-bs-target="#water-trend" type="button" role="tab">Water Quality</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="solar-tab" data-bs-toggle="tab" data-bs-target="#solar-trend" type="button" role="tab">Solar Activity</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="analysis-tab" data-bs-toggle="tab" data-bs-target="#analysis-trend" type="button" role="tab">AI Analysis</button>
+                        </li>
+                    </ul>
+                    <div class="tab-content mt-3">
+                        <div class="tab-pane fade show active" id="air-trend" role="tabpanel">
+                            <canvas id="airQualityChart" height="300"></canvas>
+                            <div id="air-quality-analysis" class="mt-3"></div>
+                        </div>
+                        <div class="tab-pane fade" id="climate-trend" role="tabpanel">
+                            <canvas id="climateChart" height="300"></canvas>
+                            <div id="climate-analysis" class="mt-3"></div>
+                        </div>
+                        <div class="tab-pane fade" id="water-trend" role="tabpanel">
+                            <canvas id="waterQualityChart" height="300"></canvas>
+                            <div id="water-quality-analysis" class="mt-3"></div>
+                        </div>
+                        <div class="tab-pane fade" id="solar-trend" role="tabpanel">
+                            <canvas id="solarChart" height="300"></canvas>
+                            <div id="solar-analysis" class="mt-3"></div>
+                        </div>
+                        <div class="tab-pane fade" id="analysis-trend" role="tabpanel">
+                            <div id="ai-analysis-content">
+                                <div class="text-center">
+                                    <div class="spinner-border" role="status">
+                                        <span class="visually-hidden">Loading...</span>
+                                    </div>
+                                    <p>Generating environmental analysis...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="results" class="mt-4"></div>
+</div>
+
+<script>
+let map = L.map('map').setView([34.0000, -109.0000], 8);
+let osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+}).addTo(map);
+
+// Add wind and temperature layers
+let windLayer = L.tileLayer.wms("https://openmeteo.geobrowser.de/wms", {
+    layers: 'wind_speed',
+    format: 'image/png',
+    transparent: true,
+    opacity: 0.7
+});
+
+let tempLayer = L.tileLayer('https://openmeteo.geobrowser.de/tiles/temp/{z}/{x}/{y}.png', {
+    opacity: 0.7
+});
+
+// Add legend
+let legend = L.control({position: 'bottomright'});
+legend.onAdd = function(map) {
+    let div = L.DomUtil.create('div', 'legend');
+    div.innerHTML = `
+        <h6>Map Legend</h6>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #3388ff"></div>
+            <span>Selected Location</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #ff0000"></div>
+            <span>Earthquake</span>
+        </div>
+    `;
+    return div;
+};
+legend.addTo(map);
+
+// Add layer control
+let baseLayers = {
+    "OpenStreetMap": osmLayer
+};
+
+let overlayLayers = {
+    "Wind Layer": windLayer,
+    "Temperature Layer": tempLayer
+};
+
+L.control.layers(baseLayers, overlayLayers).addTo(map);
+
+let marker = null;
+let earthquakeMarkers = [];
+
+function toggleWindLayer() {
+    if (document.getElementById('windLayerToggle').checked) {
+        map.addLayer(windLayer);
+    } else {
+        map.removeLayer(windLayer);
+    }
+}
+
+function toggleTempLayer() {
+    if (document.getElementById('tempLayerToggle').checked) {
+        map.addLayer(tempLayer);
+    } else {
+        map.removeLayer(tempLayer);
+    }
+}
+
+function sendMessage() {
+    const input = document.getElementById('chat-input');
+    const message = input.value.trim();
+    if (!message) return;
+
+    // Add user message to chat
+    addMessageToChat('user', message);
+    input.value = '';
+
+    // Send to backend
+    fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ message: message })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            addMessageToChat('error', 'Error: ' + data.error);
+        } else {
+            addMessageToChat('ai', data.response);
+        }
+    })
+    .catch(error => {
+        addMessageToChat('error', 'Error: ' + error.message);
+    });
+}
+
+function addMessageToChat(sender, text) {
+    const container = document.getElementById('chat-container');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'alert ' + (sender === 'user' ? 'alert-primary' : sender === 'error' ? 'alert-danger' : 'alert-secondary');
+    messageDiv.innerHTML = `<strong>${sender === 'user' ? 'You' : sender === 'error' ? 'Error' : 'AI'}:</strong> ${text}`;
+    container.appendChild(messageDiv);
+    container.scrollTop = container.scrollHeight;
+}
+
+// Allow Enter key to send message
+document.getElementById('chat-input').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        sendMessage();
+    }
+});
+
+let aqiLayer = null;
+let waterStationsLayer = null;
+let pollutionSourcesLayer = null;
+
+function toggleLayer(layerType) {
+    switch(layerType) {
+        case 'aqi':
+            if (aqiLayer) {
+                map.removeLayer(aqiLayer);
+                aqiLayer = null;
+            } else {
+                loadAQILayer();
+            }
+            break;
+        case 'water':
+            if (waterStationsLayer) {
+                map.removeLayer(waterStationsLayer);
+                waterStationsLayer = null;
+            } else {
+                loadWaterStationsLayer();
+            }
+            break;
+        case 'pollution':
+            if (pollutionSourcesLayer) {
+                map.removeLayer(pollutionSourcesLayer);
+                pollutionSourcesLayer = null;
+            } else {
+                loadPollutionSourcesLayer();
+            }
+            break;
+    }
+}
+
+function loadAQILayer() {
+    // Mock AQI heatmap data
+    const aqiData = [
+        {lat: 34.5, lng: -109.6, value: 45},
+        {lat: 34.6, lng: -109.5, value: 62},
+        {lat: 34.4, lng: -109.7, value: 38}
+    ];
+    
+    const heatPoints = aqiData.map(point => [point.lat, point.lng, point.value]);
+    aqiLayer = L.heatLayer(heatPoints, {
+        radius: 25,
+        blur: 15,
+        maxZoom: 17,
+        gradient: {
+            0.0: '#00ff00',
+            0.5: '#ffff00', 
+            1.0: '#ff0000'
+        }
+    }).addTo(map);
+}
+
+function loadWaterStationsLayer() {
+    // Mock water quality monitoring stations
+    const stations = [
+        {lat: 34.52, lng: -109.55, name: "River Monitoring Station 1", quality: "Good"},
+        {lat: 34.56, lng: -109.62, name: "Lake Monitoring Station 2", quality: "Moderate"}
+    ];
+    
+    waterStationsLayer = L.layerGroup();
+    stations.forEach(station => {
+        const marker = L.marker([station.lat, station.lng])
+            .bindPopup(`<b>${station.name}</b><br>Quality: ${station.quality}`);
+        waterStationsLayer.addLayer(marker);
+    });
+    waterStationsLayer.addTo(map);
+}
+
+function loadPollutionSourcesLayer() {
+    // Mock pollution sources
+    const sources = [
+        {lat: 34.53, lng: -109.58, name: "Industrial Plant A", type: "Factory"},
+        {lat: 34.55, lng: -109.60, name: "Power Plant B", type: "Energy"}
+    ];
+    
+    pollutionSourcesLayer = L.layerGroup();
+    sources.forEach(source => {
+        const marker = L.marker([source.lat, source.lng], {
+            icon: L.divIcon({
+                className: 'pollution-icon',
+                html: '🏭',
+                iconSize: [30, 30]
+            })
+        }).bindPopup(`<b>${source.name}</b><br>Type: ${source.type}`);
+        pollutionSourcesLayer.addLayer(marker);
+    });
+    pollutionSourcesLayer.addTo(map);
+}
+
+// Enhanced data display functions
+function displayAirQualityData(data) {
+    const container = document.getElementById('air-quality-content');
+    if (data.error) {
+        container.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+        return;
+    }
+    
+    let html = '<div class="row">';
+    Object.keys(data).forEach(param => {
+        const value = data[param].value;
+        const unit = data[param].unit || '';
+        let alertClass = 'alert-success';
+        
+        // Color coding based on EPA standards
+        if (param === 'aqi') {
+            if (value > 100) alertClass = 'alert-danger';
+            else if (value > 50) alertClass = 'alert-warning';
+        }
+        
+        html += `
+            <div class="col-md-6 mb-2">
+                <div class="alert ${alertClass} mb-0">
+                    <strong>${param.toUpperCase()}:</strong> ${value} ${unit}
+                </div>
+            </div>
+        `;
+    });
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+function displayWaterQualityData(data) {
+    const container = document.getElementById('water-quality-content');
+    if (data.error) {
+        container.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+        return;
+    }
+    
+    if (Array.isArray(data) && data.length > 0) {
+        let html = '<div class="table-responsive"><table class="table table-striped">';
+        html += '<thead><tr><th>Site</th><th>Parameter</th><th>Value</th><th>Unit</th><th>Status</th></tr></thead><tbody>';
+        
+        data.forEach(item => {
+            // Determine status based on value
+            let status = 'Normal';
+            let statusClass = 'badge bg-success';
+            
+            if (item.variable && item.variable.includes('pH')) {
+                const pH = parseFloat(item.value);
+                if (isNaN(pH)) {
+                    status = 'N/A';
+                    statusClass = 'badge bg-secondary';
+                } else if (pH < 6.5 || pH > 8.5) {
+                    status = 'Concern';
+                    statusClass = 'badge bg-warning';
+                }
+            }
+            
+            html += `
+                <tr>
+                    <td>${item.site_name || 'Unknown'}</td>
+                    <td>${item.variable || 'N/A'}</td>
+                    <td>${item.value !== 'N/A' ? item.value : '<span class="text-muted">N/A</span>'}</td>
+                    <td>${item.unit || ''}</td>
+                    <td><span class="${statusClass}">${status}</span></td>
+                </tr>
+            `;
+        });
+        html += '</tbody></table></div>';
+        container.innerHTML = html;
+    } else {
+        container.innerHTML = '<div class="alert alert-info">No water quality data available</div>';
+    }
+}
+
+// Chart instances (declare globally)
+let airQualityChart = null;
+let climateChart = null;
+let waterQualityChart = null;
+let solarChart = null;
+
+// Initialize charts
+function initCharts() {
+    const airCtx = document.getElementById('airQualityChart').getContext('2d');
+    airQualityChart = new Chart(airCtx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'AQI',
+                data: [],
+                borderColor: 'rgb(255, 99, 132)',
+                backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                tension: 0.1
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+
+    const climateCtx = document.getElementById('climateChart').getContext('2d');
+    climateChart = new Chart(climateCtx, {
+        type: 'bar',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Temperature (°F)',
+                data: [],
+                backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                borderColor: 'rgba(54, 162, 235, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: false
+                }
+            }
+        }
+    });
+
+    const waterCtx = document.getElementById('waterQualityChart').getContext('2d');
+    waterQualityChart = new Chart(waterCtx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    label: 'pH Level',
+                    data: [],
+                    borderColor: 'rgb(75, 192, 192)',
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                    tension: 0.1
+                },
+                {
+                    label: 'Dissolved Oxygen (mg/L)',
+                    data: [],
+                    borderColor: 'rgb(153, 102, 255)',
+                    backgroundColor: 'rgba(153, 102, 255, 0.2)',
+                    tension: 0.1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: false
+                }
+            }
+        }
+    });
+
+    const solarCtx = document.getElementById('solarChart').getContext('2d');
+    solarChart = new Chart(solarCtx, {
+        type: 'bar',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Solar Wind Speed (km/s)',
+                data: [],
+                backgroundColor: 'rgba(255, 205, 86, 0.2)',
+                borderColor: 'rgba(255, 205, 86, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+}
+
+// Update charts with actual data
+function updateCharts(data) {
+    // Air Quality Chart
+    if (airQualityChart && data.air_quality && !data.air_quality.error) {
+        const aqiValue = data.air_quality.aqi ? data.air_quality.aqi.value : 0;
+        airQualityChart.data.labels = ['Current'];
+        airQualityChart.data.datasets[0].data = [aqiValue];
+        airQualityChart.update();
+        
+        // Analysis text
+        document.getElementById('air-quality-analysis').innerHTML = 
+            `<div class="alert alert-info">Current AQI is ${aqiValue}. ${aqiValue > 100 ? 'Air quality is unhealthy.' : 'Air quality is acceptable.'}</div>`;
+    }
+
+    // Climate Chart (using weather data)
+    if (climateChart && data.weather && Array.isArray(data.weather)) {
+        const temps = data.weather.slice(0, 7).map(w => w.temperature);
+        const labels = data.weather.slice(0, 7).map(w => w.name);
+        climateChart.data.labels = labels;
+        climateChart.data.datasets[0].data = temps;
+        climateChart.update();
+        
+        // Analysis text
+        const avgTemp = temps.reduce((a, b) => a + b, 0) / temps.length;
+        document.getElementById('climate-analysis').innerHTML = 
+            `<div class="alert alert-info">Average temperature over next week: ${avgTemp.toFixed(1)}°F</div>`;
+    }
+
+    // Water Quality Chart
+    if (waterQualityChart && data.water_quality && Array.isArray(data.water_quality)) {
+        const phData = data.water_quality
+            .filter(item => item.variable && item.variable.includes('pH'))
+            .map(item => parseFloat(item.value))
+            .filter(val => !isNaN(val));
+            
+        const doData = data.water_quality
+            .filter(item => item.variable && item.variable.includes('Dissolved'))
+            .map(item => parseFloat(item.value))
+            .filter(val => !isNaN(val));
+            
+        const sites = data.water_quality
+            .filter(item => item.site_name)
+            .map(item => item.site_name)
+            .slice(0, Math.max(phData.length, doData.length));
+            
+        waterQualityChart.data.labels = sites;
+        waterQualityChart.data.datasets[0].data = phData;
+        waterQualityChart.data.datasets[1].data = doData;
+        waterQualityChart.update();
+        
+        // Analysis text
+        const phAvg = phData.length ? phData.reduce((a, b) => a + b, 0) / phData.length : 0;
+        document.getElementById('water-quality-analysis').innerHTML = 
+            `<div class="alert alert-info">Average pH level: ${phAvg.toFixed(2)}. Normal range is 6.5-8.5.</div>`;
+    }
+
+    // Solar Activity Chart
+    if (solarChart && data.solar && !data.solar.error) {
+        const windSpeed = data.solar.solar_wind_speed ? 
+            parseFloat(data.solar.solar_wind_speed.replace(' km/s', '')) : 0;
+        solarChart.data.labels = ['Current'];
+        solarChart.data.datasets[0].data = [windSpeed];
+        solarChart.update();
+        
+        // Analysis text
+        document.getElementById('solar-analysis').innerHTML = 
+            `<div class="alert alert-info">Solar wind speed is ${windSpeed} km/s. ${windSpeed > 500 ? 'Geomagnetic storm possible.' : 'Normal solar activity.'}</div>`;
+    }
+}
+
+// Function to generate AI analysis
+function generateAIAnalysis(data) {
+    const prompt = `
+        Based on the following environmental data, provide a comprehensive analysis:
+        
+        Weather: ${JSON.stringify(data.weather || {})}
+        Air Quality: ${JSON.stringify(data.air_quality || {})}
+        Water Quality: ${JSON.stringify(data.water_quality || {})}
+        Solar Activity: ${JSON.stringify(data.solar || {})}
+        Earthquakes: ${JSON.stringify(data.earthquakes || [])}
+        UV Index: ${JSON.stringify(data.uv_index || {})}
+        
+        Please provide:
+        1. A summary of current environmental conditions
+        2. Any concerning trends or anomalies
+        3. Recommendations for the public
+        4. Predictions for the next 24-48 hours
+    `;
+
+    // Show loading indicator
+    document.getElementById('ai-analysis-content').innerHTML = `
+        <div class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p>Generating environmental analysis...</p>
+        </div>
+    `;
+
+    fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ message: prompt })
+    })
+    .then(response => response.json())
+    .then(aiData => {
+        if (aiData.error) {
+            document.getElementById('ai-analysis-content').innerHTML = 
+                `<div class="alert alert-danger">Error: ${aiData.error}</div>`;
+        } else {
+            document.getElementById('ai-analysis-content').innerHTML = 
+                `<div class="alert alert-info">${aiData.response}</div>`;
+        }
+    })
+    .catch(error => {
+        document.getElementById('ai-analysis-content').innerHTML = 
+            `<div class="alert alert-danger">Error generating analysis: ${error.message}</div>`;
+    });
+}
+
+function updateMap(lat, lon, data) {
+    // Update marker position
+    if (marker) {
+        map.removeLayer(marker);
+    }
+    marker = L.marker([lat, lon]).addTo(map)
+        .bindPopup("Selected Location")
+        .openPopup();
+    
+    map.setView([lat, lon], 8);
+
+    // Add earthquake markers if available
+    if (Array.isArray(data.earthquakes) && data.earthquakes.length > 0) {
+        data.earthquakes.forEach(quake => {
+            if (quake.magnitude && quake.place) {
+                let quakeMarker = L.circleMarker([0, 0], {
+                    radius: quake.magnitude * 3,
+                    color: '#ff0000',
+                    fillColor: '#ff7800',
+                    fillOpacity: 0.5
+                }).bindPopup(`
+                    <b>Magnitude:</b> ${quake.magnitude}<br>
+                    <b>Place:</b> ${quake.place}<br>
+                    <b>Time:</b> ${quake.time}
+                `);
+                earthquakeMarkers.push(quakeMarker);
+                quakeMarker.addTo(map);
+            }
+        });
+    }
+}
+
+function displayEarthquakes(earthquakes) {
+    // Clear previous earthquake markers
+    earthquakeMarkers.forEach(m => map.removeLayer(m));
+    earthquakeMarkers = [];
+
+    if (Array.isArray(earthquakes) && earthquakes.length > 0) {
+        earthquakes.forEach(quake => {
+            if (quake.magnitude && quake.place) {
+                // Color code by magnitude
+                let color = '#00ff00'; // Green for low magnitude
+                if (quake.magnitude >= 5) color = '#ff8c00'; // Orange for moderate
+                if (quake.magnitude >= 7) color = '#ff0000'; // Red for high
+                
+                let quakeMarker = L.circleMarker([0, 0], {
+                    radius: Math.max(quake.magnitude * 3, 5),
+                    color: color,
+                    fillColor: color,
+                    fillOpacity: 0.7,
+                    weight: 2
+                }).bindPopup(`
+                    <b>Magnitude:</b> ${quake.magnitude}<br>
+                    <b>Place:</b> ${quake.place}<br>
+                    <b>Time:</b> ${quake.time}<br>
+                    <b>Alert Level:</b> ${getAlertLevel(quake.magnitude)}
+                `);
+                earthquakeMarkers.push(quakeMarker);
+                quakeMarker.addTo(map);
+            }
+        });
+    }
+}
+
+function getAlertLevel(magnitude) {
+    if (magnitude >= 7) return "🔴 High";
+    if (magnitude >= 5) return "🟡 Moderate";
+    return "🟢 Low";
+}
+
+// Enhanced loadData function with chart updates
+function loadData() {
+    const lat = document.getElementById('lat').value;
+    const lon = document.getElementById('lon').value;
+
+    // Clear previous layers
+    if (marker) map.removeLayer(marker);
+    if (earthquakeMarkers) earthquakeMarkers.forEach(m => map.removeLayer(m));
+
+    fetch(`/api/data?lat=${lat}&lon=${lon}`)
+        .then(res => res.json())
+        .then(data => {
+            // Existing functionality...
+            updateMap(lat, lon, data);
+            
+            // New enhanced displays
+            displayAirQualityData(data.air_quality || {});
+            displayWaterQualityData(data.water_quality || []);
+            
+            // Enhanced earthquake visualization
+            displayEarthquakes(data.earthquakes || []);
+            
+            // Format display data
+            let weatherHtml = '';
+            if (Array.isArray(data.weather) && !data.weather.error) {
+                weatherHtml = `
+                    <h3>Weather Forecast</h3>
+                    <div class="row">
+                        ${data.weather.map(w => `
+                            <div class="col-md-6 col-lg-4 mb-3">
+                                <div class="card">
+                                    <div class="card-body">
+                                        <h5 class="card-title">${w.name}</h5>
+                                        <p class="card-text">
+                                            <strong>${w.temperature}°${w.temperature_unit}</strong><br>
+                                            ${w.short_forecast}<br>
+                                            <small>Wind: ${w.wind_speed} ${w.wind_direction}</small>
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            } else {
+                weatherHtml = `<h3>Weather Forecast</h3><p>Error loading weather data</p>`;
+            }
+
+            let solarHtml = '';
+            if (data.solar && !data.solar.error) {
+                solarHtml = `
+                    <h3>Solar Activity</h3>
+                    <div class="card">
+                        <div class="card-body">
+                            <p><strong>Solar Wind Speed:</strong> ${data.solar.solar_wind_speed || 'N/A'}</p>
+                            <p><strong>Sunspot Number:</strong> ${data.solar.sunspot_number || 'N/A'}</p>
+                            <p><strong>Solar Activity:</strong> ${data.solar.solar_activity || 'N/A'}</p>
+                        </div>
+                    </div>
+                `;
+            } else {
+                solarHtml = `<h3>Solar Activity</h3><p>Error loading solar data</p>`;
+            }
+
+            let earthquakeHtml = '';
+            if (Array.isArray(data.earthquakes) && data.earthquakes.length > 0) {
+                earthquakeHtml = `
+                    <h3>Recent Earthquakes (Nearby)</h3>
+                    <div class="row">
+                        ${data.earthquakes.map(q => `
+                            <div class="col-md-6 mb-2">
+                                <div class="card">
+                                    <div class="card-body">
+                                        <h5 class="card-title">Magnitude: ${q.magnitude}</h5>
+                                        <p class="card-text">
+                                            <strong>Place:</strong> ${q.place}<br>
+                                            <strong>Time:</strong> ${q.time}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            } else {
+                earthquakeHtml = `<h3>Recent Earthquakes</h3><p>No recent earthquakes nearby</p>`;
+            }
+
+            // Replace geomagnetic with Schumann resonance
+            let schumannHtml = '';
+            if (data.schumann && !data.schumann.error) {
+                schumannHtml = `
+                    <h3>Schumann Resonance</h3>
+                    <div class="card">
+                        <div class="card-body">
+                            <p><strong>Time:</strong> ${data.schumann.time}</p>
+                            <p><strong>Frequency:</strong> ${data.schumann.frequency}</p>
+                            <p><strong>Intensity:</strong> ${data.schumann.intensity}</p>
+                            <p><strong>Variations:</strong> ${data.schumann.variations}</p>
+                        </div>
+                    </div>
+                `;
+            } else {
+                schumannHtml = `<h3>Schumann Resonance</h3><p>Error loading Schumann data</p>`;
+            }
+
+            let uvHtml = '';
+            if (data.uv_index && !data.uv_index.error) {
+                uvHtml = `
+                    <h3>UV Index</h3>
+                    <div class="card">
+                        <div class="card-body">
+                            <p><strong>Value:</strong> ${data.uv_index.value}</p>
+                            <p><strong>Risk Level:</strong> ${data.uv_index.risk_level}</p>
+                            <p><strong>Protection:</strong> ${data.uv_index.protection}</p>
+                        </div>
+                    </div>
+                `;
+            } else {
+                uvHtml = `<h3>UV Index</h3><p>Error loading UV data</p>`;
+            }
+
+            document.getElementById('results').innerHTML = `
+                ${weatherHtml}
+                ${solarHtml}
+                ${earthquakeHtml}
+                ${schumannHtml}
+                ${uvHtml}
+            `;
+            
+            // Update charts with new data
+            updateCharts(data);
+            
+            // Generate AI analysis
+            generateAIAnalysis(data);
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            document.getElementById('results').innerHTML = `<div class="alert alert-danger">Error loading data: ${error.message}</div>`;
+        });
+}
+
+// Initialize charts when page loads
+window.onload = function() {
+    initCharts();
+    loadData();
+};
+</script>
+</body>
+</html>
